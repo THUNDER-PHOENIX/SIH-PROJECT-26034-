@@ -8,10 +8,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-import db
-import extract
-import report
-import rules
+from . import db
+from . import extract
+from . import report
+from . import rules
 
 BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UP = os.path.join(BASE, "uploads")
