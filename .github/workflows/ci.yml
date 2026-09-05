@@ -1,0 +1,24 @@
+name: LM Comply CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system OCR
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - name: Install Python dependencies
+        run: pip install -r lmcomply/requirements.txt
+      - name: Compile Python
+        run: python -m compileall -q lmcomply
+      - name: Import application
+        run: python -c "from lmcomply.backend.main import app; print(app.title, app.version)"
