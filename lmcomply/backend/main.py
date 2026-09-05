@@ -61,7 +61,7 @@ def role(x_role: str = Header(default=""), lm_session: str | None = Cookie(defau
 
 
 @app.post("/api/auth/login")
-def login(password: str = Form(...), requested_role: str = Form("inspector"), response: Response = None):
+def login(response: Response, password: str = Form(...), requested_role: str = Form("inspector")):
     if requested_role not in {"inspector", "admin"} or not hmac.compare_digest(password, INSPECTOR_PASSWORD):
         raise HTTPException(401, "Invalid credentials")
     token = _token(requested_role)
