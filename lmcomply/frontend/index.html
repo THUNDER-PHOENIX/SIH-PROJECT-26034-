@@ -1,9 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LM Comply — Packaged Commodities Compliance Checker</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="LM Comply automated packaged-commodity label screening">
+<title>LM Comply — Compliance Checker</title>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -11,8 +12,8 @@
 <body>
 <header>
   <h1>⚖️ LM Comply</h1>
-  <p>Legal Metrology (Packaged Commodities) Rules, 2011 — automated screening for enforcement</p>
-  <nav>
+  <p>Legal Metrology packaged-commodity label screening</p>
+  <nav aria-label="Main navigation">
     <button class="tab active" data-tab="scan">New Scan</button>
     <button class="tab" data-tab="history">Inspection History</button>
     <button class="tab" data-tab="dash">Dashboard</button>
@@ -20,41 +21,44 @@
 </header>
 
 <main>
-  <!-- SCAN -->
   <section id="scan" class="page">
     <div class="card">
       <h2>Scan a product label</h2>
-      <input type="file" id="img" accept="image/*" capture="environment">
+      <p class="hint">Use a clear, front-facing photo. Maximum image size: 10 MB.</p>
+      <input type="file" id="img" accept="image/jpeg,image/png,image/webp" capture="environment" aria-label="Product label image">
       <label>Calibration (optional): px per mm
-        <input type="number" id="ppm" step="0.1" placeholder="auto from image DPI"></label>
-      <label>Demo OCR text (if Tesseract not installed):
-        <input type="text" id="demo" placeholder='e.g. "Aloo Bhujia MRP Rs. 72 Net Qty 400g MFG: 03/2026 Manufactured by Haldiram"'></label>
+        <input type="number" id="ppm" min="0.1" max="10000" step="0.1" placeholder="Auto from image DPI"></label>
+      <label>OCR fallback / demo text (optional)
+        <input type="text" id="demo" placeholder="Aloo Bhujia MRP Rs. 72 Net Qty 400g MFG: 03/2026"></label>
       <button id="go">Analyze Label</button>
+      <p id="error" class="bad" role="alert"></p>
     </div>
+
     <div id="result" class="card hidden">
       <h2>Result: <span id="status"></span></h2>
-      <h3>Extracted declarations</h3><pre id="extracted"></pre>
-      <h3>Violations</h3><ul id="viol"></ul>
-      <a id="pdf" class="btn" target="_blank">Download PDF report</a>
+      <p id="confidence" class="hint"></p>
+      <h3>Extracted declarations</h3>
+      <pre id="extracted"></pre>
+      <h3>Findings</h3>
+      <ul id="viol"></ul>
+      <a id="pdf" class="btn" target="_blank" rel="noopener">Open PDF report</a>
     </div>
   </section>
 
-  <!-- HISTORY -->
   <section id="history" class="page hidden">
     <div class="card"><h2>Inspection history</h2>
-      <table id="tbl"><tr><th>ID</th><th>Product</th><th>Status</th><th>Date</th><th></th></tr></table>
+      <div class="table-wrap"><table id="tbl"><tr><th>ID</th><th>Product</th><th>Status</th><th>Date</th><th>Report</th></tr></table></div>
     </div>
   </section>
 
-  <!-- DASHBOARD -->
   <section id="dash" class="page hidden">
     <div class="kpis">
-      <div class="kpi"><b id="k_total">0</b><span>Scans</span></div>
+      <div class="kpi"><b id="k_total">0</b><span>Total scans</span></div>
       <div class="kpi bad"><b id="k_nc">0</b><span>Non-compliant</span></div>
       <div class="kpi good"><b id="k_rate">0%</b><span>Compliance rate</span></div>
     </div>
-    <div class="card"><h2>Violations by rule</h2><canvas id="ch_rule" height="120"></canvas></div>
-    <div class="card"><h2>By severity</h2><canvas id="ch_sev" height="120"></canvas></div>
+    <div class="card chart-card"><h2>Violations by rule</h2><div class="chart-box"><canvas id="ch_rule"></canvas></div></div>
+    <div class="card chart-card"><h2>Findings by severity</h2><div class="chart-box"><canvas id="ch_sev"></canvas></div></div>
   </section>
 </main>
 <script src="app.js"></script>
