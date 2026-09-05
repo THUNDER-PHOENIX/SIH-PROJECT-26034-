@@ -1,60 +1,111 @@
+import re
+import shutil
+from typing import Any
 
-import re, shutil
+from PIL import Image, ImageOps
+
 try:
     import pytesseract
     HAS_TESS = shutil.which("tesseract") is not None
 except Exception:
     HAS_TESS = False
 
-from PIL import Image
+PHONE_RE = re.compile(r"(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}")
+EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+DATE_RE = re.compile(r"(?:mfg|mfd|pkd|packed|manufactured|imported)[^\d]{0,15}(\d{1,2}[/-])?(20\d{2})", re.I)
+QTY_RE = re.compile(r"(?:net\s*(?:qty|quantity|wt|weight))?\s*([\d.,]+)\s*(kg|g|mg|l|ml|cl|m|cm|mm|pcs|pieces?|units?)\b", re.I)
+MRP_RE = re.compile(r"(?:mrp|maximum\s+retail\s+price)[^\d₹]{0,15}(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)", re.I)
+ORIGIN_RE = re.compile(r"country\s+of\s+origin\s*[:\-]?\s*([a-z][a-z .,&'-]{1,40})", re.I)
+
+
+def _normalise(text: str) -> str:
+    return " ".join((text or "").replace("\n", " ").split())
+
+
+def ocr_data(path: str) -> dict[str, Any]:
+    if not HAS_TESS:
+        return {"text": "", "confidence": 0.0, "boxes": []}
+    try:
+        image = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT, config="--psm 6")
+        words, confs = [], []
+        for i, raw in enumerate(data["text"]):
+            text = raw.strip()
+            try:
+                conf = float(data["conf"][i])
+            except (ValueError, TypeError):
+                conf = -1
+            if text:
+                words.append({"text": text, "h": int(data["height"][i]), "conf": max(0.0, conf)})
+                if conf >= 0:
+                    confs.append(conf)
+        return {"text": " ".join(w["text"] for w in words), "confidence": round(sum(confs) / len(confs) / 100, 3) if confs else 0.0, "boxes": words}
+    except Exception:
+        return {"text": "", "confidence": 0.0, "boxes": []}
+
 
 def ocr_text(path):
-    if not HAS_TESS: return ""
-    return pytesseract.image_to_string(Image.open(path))
+    return ocr_data(path)["text"]
+
 
 def word_boxes(path):
-    """Return list of {text, h(px)} for font-size estimation."""
-    if not HAS_TESS: return []
-    data = pytesseract.image_to_data(Image.open(path), output_type=pytesseract.Output.DICT)
-    out = []
-    for i in range(len(data["text"])):
-        if data["text"][i].strip():
-            out.append({"text": data["text"][i], "h": data["height"][i]})
-    return out
+    return ocr_data(path)["boxes"]
+
 
 def px_per_mm_from_image(path):
     try:
-        dpi = Image.open(path).info.get("dpi", (96, 96))[0]
+        image = Image.open(path)
+        dpi = image.info.get("dpi", (96, 96))[0] or 96
+        return float(dpi) / 25.4
     except Exception:
-        dpi = 96
-    return dpi / 25.4
+        return 96 / 25.4
 
-def parse_fields(text):
-    t = " ".join(text.replace("\n", " ").split())
+
+def _field(value, confidence):
+    return {"value": value, "confidence": round(max(0.0, min(1.0, confidence)), 2)} if value is not None else {"value": None, "confidence": 0.0}
+
+
+def parse_fields(text: str):
+    t = _normalise(text)
     low = t.lower()
     f = {"raw": t}
-    m = re.search(r"(?:mrp[^\d]{0,15})(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.[0-9]{1,2})?)", low)
-    f["mrp"] = m.group(1) if m else None
-    m = re.search(r"([\d.,]+)\s?(kg|g|mg|l|ml|cl|m|cm|mm|pcs|piece|unit|u)s?\b", low)
-    f["net_qty"] = (m.group(1), m.group(2)) if m else None
-    m = re.search(r"(mfg|pkd|manufactured|packed|imported)[^\d]{0,8}([01]?[0-9]/)?(20\d{2})", low)
-    f["date"] = (m.group(0)[:40] if m else None)
-    f["phone"] = bool(re.search(r"(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}", t)) or bool(re.search(r"1?800[-\s]?\d{3}[-\s]?\d{4}", t.replace(" ", "")))
-    f["email"] = bool(re.search(r"[\w.]+@[\w.]+", t))
-    f["imported"] = ("import" in low) or ("country of origin" in low)
-    f["origin"] = re.search(r"country of origin[:\s]+([a-z ]{2,20})", low)
-    f["importer_addr"] = ("imported by" in low) or ("imported & marketed by" in low) or ("marketer" in low)
-    f["mfr_decl"] = any(k in low for k in ("manufactured by", "packed by", "marketed by", "mfg by", "mfg:"))
-    m = re.search(r"best before[^a-z]{0,25}([0-9].{0,20})", low)
-    f["best_before"] = m.group(1) if m else None
+
+    m = MRP_RE.search(t)
+    f["mrp"] = m.group(1).replace(",", "") if m else None
+    f["mrp_confidence"] = 0.95 if m else 0.0
+
+    m = QTY_RE.search(t)
+    f["net_qty"] = (m.group(1), m.group(2).lower().rstrip("s")) if m else None
+    f["net_qty_confidence"] = 0.9 if m else 0.0
+
+    m = DATE_RE.search(t)
+    f["date"] = m.group(0)[:60] if m else None
+    f["date_confidence"] = 0.9 if m else 0.0
+
+    f["phone"] = bool(PHONE_RE.search(t) or re.search(r"1?800[-\s]?\d{3}[-\s]?\d{4}", t))
+    f["email"] = bool(EMAIL_RE.search(t))
+    f["contact_confidence"] = 0.95 if (f["phone"] or f["email"]) else 0.0
+
+    f["imported"] = bool(re.search(r"\bimported\b|country\s+of\s+origin", low))
+    m = ORIGIN_RE.search(t)
+    f["origin"] = m.group(1).strip(" .,") if m else None
+    f["importer_addr"] = bool(re.search(r"imported\s+(?:by|&\s*marketed\s+by)", low))
+    f["mfr_decl"] = bool(re.search(r"(?:manufactured|packed|marketed)\s+by\s*[:\-]", low) or re.search(r"mfg\s+by\s*[:\-]", low))
+
+    m = re.search(r"best\s+before\s*[:\-]?\s*([^;]{1,30})", t, re.I)
+    f["best_before"] = m.group(1).strip() if m else None
     return f
 
+
 def mrp_font_mm(fields, boxes, px_per_mm):
-    """Estimate physical height of the MRP numerals via OCR box height."""
-    if not boxes or not px_per_mm: return None
-    mrp = (fields.get("mrp") or "").replace(",", "")
-    cands = [b["h"] for b in boxes if mrp and mrp in b["text"].replace(",", "")]
-    if not cands:  # fallback: smallest-height digit token on the label
-        digs = [b["h"] for b in boxes if re.search(r"\d", b["text"])]
-        cands = [min(digs)] if digs else []
-    return round(min(cands) / px_per_mm, 2) if cands else None
+    if not boxes or not px_per_mm or not fields.get("mrp"):
+        return None
+    target = fields["mrp"].replace(",", "")
+    candidates = []
+    for b in boxes:
+        token = b["text"].replace(",", "")
+        if any(ch.isdigit() for ch in token) and target in token:
+            candidates.append(b["h"])
+    if not candidates:
+        return None
+    return round(max(candidates) / float(px_per_mm), 2)
