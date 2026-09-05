@@ -55,7 +55,6 @@ def role(x_role: str = Header(default=""), lm_session: str | None = Cookie(defau
     authenticated = _verify_token(lm_session)
     if authenticated:
         return authenticated
-    # Backwards-compatible API access for local/demo testing. Public deployment should use login cookie.
     if x_role in {"inspector", "admin"} and os.getenv("LM_COMPLY_ALLOW_HEADER_ROLE", "0") == "1":
         return x_role
     raise HTTPException(401, "Authentication required")
@@ -66,8 +65,7 @@ def login(password: str = Form(...), requested_role: str = Form("inspector"), re
     if requested_role not in {"inspector", "admin"} or not hmac.compare_digest(password, INSPECTOR_PASSWORD):
         raise HTTPException(401, "Invalid credentials")
     token = _token(requested_role)
-    if response is not None:
-        response.set_cookie("lm_session", token, httponly=True, samesite="lax", secure=os.getenv("COOKIE_SECURE", "0") == "1", max_age=12 * 3600)
+    response.set_cookie("lm_session", token, httponly=True, samesite="lax", secure=os.getenv("COOKIE_SECURE", "0") == "1", max_age=12 * 3600)
     return {"ok": True, "role": requested_role, "expires_in": 12 * 3600}
 
 
@@ -133,7 +131,6 @@ async def scan(file: UploadFile = File(...), px_per_mm: float | None = Form(None
     hard_findings = [v for v in violations if v["severity"] in {"CRITICAL", "MAJOR"}]
     review_findings = [v for v in violations if v["severity"] == "REVIEW"]
     status = "NON_COMPLIANT" if hard_findings else ("REVIEW_REQUIRED" if review_findings else "COMPLIANT")
-
     product_name = (fields.get("product_name") or {}).get("value") or "Unknown product"
     brand = product_name.split()[0][:40] if product_name else "Unknown"
     pid = db.run("INSERT INTO products(name,brand,category,created_at) VALUES(?,?,?,?)", (product_name[:120], brand, category[:40], time.time()))
