@@ -1,13 +1,30 @@
-
 """Generate realistic test label PNGs into uploads/labels/ (pure PIL, no network)."""
 import os
 from PIL import Image, ImageDraw, ImageFont
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "uploads", "labels")
 os.makedirs(OUT, exist_ok=True)
-FONT_DIR = "/usr/share/fonts/truetype/dejavu"
-def F(s): return ImageFont.truetype(os.path.join(FONT_DIR, "DejaVuSans.ttf"), s)
-def FB(s): return ImageFont.truetype(os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf"), s)
+
+
+def _font(name: str, size: int):
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "fonts", name),
+        os.path.join(os.environ.get("WINDIR", r"C:\\Windows"), "Fonts", name),
+        os.path.join("/usr/share/fonts/truetype/dejavu", name),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
+
+def F(s):
+    return _font("DejaVuSans.ttf", s)
+
+
+def FB(s):
+    return _font("DejaVuSans-Bold.ttf", s)
+
 
 def label(name, lines, fbold=FB, freg=F, base=34):
     W = 900
@@ -16,13 +33,14 @@ def label(name, lines, fbold=FB, freg=F, base=34):
     d = ImageDraw.Draw(img)
     y = 40
     for item in lines:
-        txt, b = (item[0], item[1])
+        txt, b = item[0], item[1]
         sz = item[2] if len(item) > 2 else base
         d.text((40, y), txt, font=(fbold(sz) if b else freg(sz)), fill="#1a1a1a")
         y += int(sz * 1.6)
     p = os.path.join(OUT, name)
-    img.save(p, dpi=(300, 300))   # real DPI so px/mm calibration is honest
+    img.save(p, dpi=(300, 300))
     return p
+
 
 label("01_compliant.png", [
     ("GOLDEN BISCUITS  Premium Cookies", True),
